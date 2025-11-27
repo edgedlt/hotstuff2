@@ -1,0 +1,60 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.out
+coverage.html
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Build artifacts
+bin/
+dist/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# TLA+ model checking output
+formal-models/**/*.toolbox/
+formal-models/**/states/
+formal-models/**/*.out
+formal-models/**/*.log
+
+# Profiling and benchmarking
+*.prof
+*.pprof
+bench.txt
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS-specific
+Thumbs.db
+Desktop.ini
+
+# Benchmark artifacts
+benchmark-*.html
+demo/demo
+
+# Backup files
+*.backup
+*~

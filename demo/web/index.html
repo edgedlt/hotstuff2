@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HotStuff-2 Interactive Demo</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>HotStuff-2 Interactive Demo</h1>
+            <div class="controls">
+                <select id="levelSelect">
+                    <option value="0">Level 1: Happy Path</option>
+                    <option value="1">Level 2: Byzantine Weather</option>
+                    <option value="2">Level 3: Chaos Mode</option>
+                </select>
+                <select id="faultToleranceSelect" title="Fault tolerance (f) - BFT requires 3f+1 nodes">
+                    <option value="1">f=1 (4 nodes)</option>
+                    <option value="2">f=2 (7 nodes)</option>
+                    <option value="3">f=3 (10 nodes)</option>
+                    <option value="4">f=4 (13 nodes)</option>
+                    <option value="5">f=5 (16 nodes)</option>
+                </select>
+                <select id="blockTimeSelect" title="Block time mode">
+                    <option value="1">Slow (1s blocks) - Better visibility</option>
+                    <option value="0">Fast (Optimistic) - Max speed</option>
+                </select>
+                <button id="startBtn" class="btn btn-primary">Start</button>
+                <button id="stopBtn" class="btn btn-secondary" disabled>Stop</button>
+                <button id="resetBtn" class="btn btn-secondary">Reset</button>
+            </div>
+        </header>
+
+        <main>
+            <div class="simulation-area">
+                <canvas id="canvas" width="800" height="500"></canvas>
+            </div>
+
+            <div class="sidebar">
+                <div class="stats-panel">
+                    <h3>Statistics</h3>
+                    <div class="stat-row">
+                        <span class="stat-label">Time:</span>
+                        <span id="simTime" class="stat-value">0.0s</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Fault Tolerance (f):</span>
+                        <span id="faultTolerance" class="stat-value">1</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Nodes / Quorum:</span>
+                        <span id="nodesQuorum" class="stat-value">4 / 3</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Messages Sent:</span>
+                        <span id="messagesSent" class="stat-value">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Messages Dropped:</span>
+                        <span id="messagesDropped" class="stat-value">0</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Status:</span>
+                        <span id="status" class="stat-value">Stopped</span>
+                    </div>
+                </div>
+
+                <div class="nodes-panel">
+                    <h3>Nodes</h3>
+                    <div id="nodesList"></div>
+                </div>
+
+                <div class="fault-panel">
+                    <h3>Fault Injection</h3>
+                    <div class="fault-buttons">
+                        <button id="crashBtn" class="btn btn-danger btn-sm">Crash Random Node</button>
+                        <button id="partitionBtn" class="btn btn-warning btn-sm">Create Partition</button>
+                        <button id="healBtn" class="btn btn-success btn-sm">Heal All</button>
+                    </div>
+                </div>
+
+                <div class="events-panel">
+                    <div class="events-header">
+                        <h3>Events</h3>
+                        <div class="events-controls">
+                            <button id="clearEventsBtn" class="btn btn-sm btn-secondary" title="Clear event log">Clear</button>
+                            <button id="exportEventsBtn" class="btn btn-sm btn-secondary" title="Copy events to clipboard">Copy Log</button>
+                        </div>
+                    </div>
+                    <div id="eventsList" class="events-list"></div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>HotStuff-2: Two-phase BFT consensus with linear view-change complexity</p>
+            <p>
+                <a href="https://eprint.iacr.org/2023/397.pdf" target="_blank">Read the paper</a>
+                &nbsp;|&nbsp;
+                <a href="https://github.com/edgedlt/hotstuff2" target="_blank">View on GitHub</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
