@@ -34,6 +34,11 @@ class ConsensusDemo {
             this.resetWithParams();
         });
         
+        // Block time select
+        document.getElementById('blockTimeSelect').addEventListener('change', (e) => {
+            this.resetWithParams();
+        });
+        
         // Fault injection buttons
         document.getElementById('crashBtn').addEventListener('click', () => this.crashRandomNode());
         document.getElementById('partitionBtn').addEventListener('click', () => this.createPartition());
@@ -88,7 +93,8 @@ class ConsensusDemo {
     async resetWithParams() {
         const level = document.getElementById('levelSelect').value;
         const f = document.getElementById('faultToleranceSelect').value;
-        await this.apiCall(`reset?level=${level}&f=${f}`, 'POST');
+        const blocktime = document.getElementById('blockTimeSelect').value;
+        await this.apiCall(`reset?level=${level}&f=${f}&blocktime=${blocktime}`, 'POST');
         document.getElementById('startBtn').disabled = false;
         document.getElementById('stopBtn').disabled = true;
     }
