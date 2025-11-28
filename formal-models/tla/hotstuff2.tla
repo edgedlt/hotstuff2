@@ -3,10 +3,9 @@
  * TLA+ Specification for HotStuff-2 Consensus Protocol
  *
  * Paper: https://eprint.iacr.org/2023/397.pdf
- * Concepts: ../../docs/CONCEPTS.md
- * Reference: ../../docs/ALGORITHM_REFERENCE.md
- * Implementation: ../../hotstuff2.go
- * Mapping: ./IMPLEMENTATION_MAPPING.md
+ * Reference: https://github.com/edgedlt/hotstuff2/blob/main/docs/PROTOCOL.md
+ * Implementation: https://github.com/edgedlt/hotstuff2/blob/main/hotstuff2.go
+ * Mapping: https://github.com/edgedlt/hotstuff2/blob/main/formal-models/tla/IMPLEMENTATION_MAPPING.md
  *
  * This spec models the two-phase HotStuff-2 algorithm with:
  * - Two-chain commit rule (Cv(Cv(B)))
