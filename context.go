@@ -565,3 +565,54 @@ func (c *Context[H]) highQCView() uint32 {
 	}
 	return c.highQC.View()
 }
+
+// contextState wraps Context to implement ConsensusState interface.
+// This provides a read-only view of consensus state for external monitoring.
+type contextState[H Hash] struct {
+	ctx *Context[H]
+}
+
+// View returns the current view number.
+func (s *contextState[H]) View() uint32 {
+	return s.ctx.View()
+}
+
+// Height returns the height of the last committed block.
+func (s *contextState[H]) Height() uint32 {
+	s.ctx.mu.RLock()
+	defer s.ctx.mu.RUnlock()
+
+	maxHeight := uint32(0)
+	for height := range s.ctx.committed {
+		if height > maxHeight {
+			maxHeight = height
+		}
+	}
+	return maxHeight
+}
+
+// LockedQCView returns the view of the locked QC, or 0 if none.
+func (s *contextState[H]) LockedQCView() uint32 {
+	s.ctx.mu.RLock()
+	defer s.ctx.mu.RUnlock()
+	return s.ctx.lockedQCView()
+}
+
+// HighQCView returns the view of the highest QC seen, or 0 if none.
+func (s *contextState[H]) HighQCView() uint32 {
+	s.ctx.mu.RLock()
+	defer s.ctx.mu.RUnlock()
+	return s.ctx.highQCView()
+}
+
+// CommittedCount returns the number of committed blocks.
+func (s *contextState[H]) CommittedCount() int {
+	s.ctx.mu.RLock()
+	defer s.ctx.mu.RUnlock()
+	return len(s.ctx.committed)
+}
+
+// State returns a read-only ConsensusState for the context.
+func (c *Context[H]) State() ConsensusState {
+	return &contextState[H]{ctx: c}
+}

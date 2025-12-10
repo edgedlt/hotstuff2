@@ -1,6 +1,8 @@
 package hotstuff2
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/edgedlt/hotstuff2/internal/crypto"
@@ -110,8 +112,14 @@ func TestConfigValidationMissingFields(t *testing.T) {
 				t.Fatal("Expected error, got nil")
 			}
 
-			if err.Error() != "invalid config: "+tt.wantErr {
-				t.Errorf("Expected error '%s', got '%s'", tt.wantErr, err.Error())
+			// Check that it's a config error
+			if !errors.Is(err, ErrConfig) {
+				t.Errorf("Expected ErrConfig, got: %v", err)
+			}
+
+			// Check that error message contains the expected text
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Expected error to contain '%s', got '%s'", tt.wantErr, err.Error())
 			}
 		})
 	}
@@ -135,8 +143,8 @@ func TestConfigInvalidIndex(t *testing.T) {
 		t.Fatal("Expected error for invalid index")
 	}
 
-	if err.Error() != "invalid config: my index 5 is not in validator set" {
-		t.Errorf("Unexpected error: %v", err)
+	if !errors.Is(err, ErrConfig) {
+		t.Errorf("Expected ErrConfig, got: %v", err)
 	}
 }
 

@@ -309,3 +309,46 @@ func (mt MessageType) String() string {
 		return "UNKNOWN"
 	}
 }
+
+// ConsensusState provides read-only access to consensus state.
+// Use HotStuff2.State() to obtain an instance.
+type ConsensusState interface {
+	// View returns the current view number.
+	View() uint32
+
+	// Height returns the height of the last committed block.
+	Height() uint32
+
+	// LockedQCView returns the view of the locked QC, or 0 if none.
+	LockedQCView() uint32
+
+	// HighQCView returns the view of the highest QC seen, or 0 if none.
+	HighQCView() uint32
+
+	// CommittedCount returns the number of committed blocks.
+	CommittedCount() int
+}
+
+// Hooks provides callbacks for consensus events.
+// All callbacks are optional - nil callbacks are safely ignored.
+// Callbacks are invoked synchronously, so implementations should be fast
+// or dispatch to a goroutine to avoid blocking consensus.
+type Hooks[H Hash] struct {
+	// OnPropose is called when this node proposes a block (leader only).
+	OnPropose func(view uint32, block Block[H])
+
+	// OnVote is called when this node votes for a proposal.
+	OnVote func(view uint32, blockHash H)
+
+	// OnQCFormed is called when a quorum certificate is formed.
+	OnQCFormed func(view uint32, qc QuorumCertificate[H])
+
+	// OnCommit is called when a block is committed (finalized).
+	OnCommit func(block Block[H])
+
+	// OnViewChange is called when the view changes.
+	OnViewChange func(oldView, newView uint32)
+
+	// OnTimeout is called when a view times out.
+	OnTimeout func(view uint32)
+}

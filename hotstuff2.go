@@ -33,13 +33,21 @@ type HotStuff2[H Hash] struct {
 	cancelFunc context.CancelFunc
 
 	// Callbacks
-	onCommit func(Block[H])
+	hooks *Hooks[H]
 
 	logger *zap.Logger
 }
 
 // NewHotStuff2 creates a new HotStuff2 consensus instance.
+// Deprecated: Use NewHotStuff2WithHooks for full observability support.
+// This function is kept for backwards compatibility.
 func NewHotStuff2[H Hash](cfg *Config[H], onCommit func(Block[H])) (*HotStuff2[H], error) {
+	hooks := &Hooks[H]{OnCommit: onCommit}
+	return NewHotStuff2WithHooks(cfg, hooks)
+}
+
+// NewHotStuff2WithHooks creates a new HotStuff2 consensus instance with event hooks.
+func NewHotStuff2WithHooks[H Hash](cfg *Config[H], hooks *Hooks[H]) (*HotStuff2[H], error) {
 	// Initialize context from storage
 	genesisBlock, err := cfg.Storage.GetLastBlock()
 	if err != nil {
@@ -77,7 +85,7 @@ func NewHotStuff2[H Hash](cfg *Config[H], onCommit func(Block[H])) (*HotStuff2[H
 		msgChan:  cfg.Network.Receive(),
 		stopChan: make(chan struct{}),
 		doneChan: make(chan struct{}),
-		onCommit: onCommit,
+		hooks:    hooks,
 		logger:   cfg.Logger,
 	}
 
@@ -361,6 +369,11 @@ func (hs *HotStuff2[H]) onProposal(payload ConsensusPayload[H]) {
 		zap.Uint32("view", view),
 		zap.String("block_hash", block.Hash().String()))
 
+	// Hook: OnVote
+	if hs.hooks != nil && hs.hooks.OnVote != nil {
+		hs.hooks.OnVote(view, block.Hash())
+	}
+
 	// Track our own vote and check if we can form QC
 	// This is important because we may have received other votes before the proposal
 	voteCount := hs.ctx.AddVote(vote)
@@ -458,6 +471,11 @@ func (hs *HotStuff2[H]) tryFormQCIfQuorum(view uint32, nodeHash H, voteCount int
 	hs.logger.Info("QC formed",
 		zap.Uint32("view", view),
 		zap.String("block_hash", nodeHash.String()))
+
+	// Hook: OnQCFormed
+	if hs.hooks != nil && hs.hooks.OnQCFormed != nil {
+		hs.hooks.OnQCFormed(view, qc)
+	}
 
 	// TLA+ highQC' = b
 	hs.ctx.UpdateHighQC(qc)
@@ -563,8 +581,8 @@ func (hs *HotStuff2[H]) checkCommit(block Block[H], qc *QC[H]) bool {
 	hs.pm.OnCommit(qc.View())
 
 	// Callback
-	if hs.onCommit != nil {
-		hs.onCommit(block)
+	if hs.hooks != nil && hs.hooks.OnCommit != nil {
+		hs.hooks.OnCommit(block)
 	}
 
 	return true
@@ -737,6 +755,11 @@ func (hs *HotStuff2[H]) onViewTimeout(view uint32) {
 		zap.Uint32("old_view", currentView),
 		zap.Uint32("new_view", currentView+1))
 
+	// Hook: OnTimeout
+	if hs.hooks != nil && hs.hooks.OnTimeout != nil {
+		hs.hooks.OnTimeout(currentView)
+	}
+
 	// Advance view
 	nextView := currentView + 1
 	hs.advanceView(nextView)
@@ -750,6 +773,7 @@ func (hs *HotStuff2[H]) onViewTimeout(view uint32) {
 // TLA+ LeaderPropose: Leader has QC from normal voting, can propose immediately.
 // This is different from advanceView (timeout path) which waits for NEWVIEWs.
 func (hs *HotStuff2[H]) advanceViewWithQC(nextView uint32, qc *QC[H]) {
+	oldView := hs.ctx.View()
 	hs.ctx.SetView(nextView)
 	if err := hs.cfg.Storage.PutView(nextView); err != nil {
 		hs.logger.Error("failed to persist view", zap.Error(err))
@@ -762,6 +786,11 @@ func (hs *HotStuff2[H]) advanceViewWithQC(nextView uint32, qc *QC[H]) {
 	hs.logger.Info("advanced to new view with QC",
 		zap.Uint32("view", nextView),
 		zap.Uint32("qc_view", qc.View()))
+
+	// Hook: OnViewChange
+	if hs.hooks != nil && hs.hooks.OnViewChange != nil {
+		hs.hooks.OnViewChange(oldView, nextView)
+	}
 
 	// Start timer for new view
 	hs.pm.Start(nextView)
@@ -779,6 +808,7 @@ func (hs *HotStuff2[H]) advanceViewWithQC(nextView uint32, qc *QC[H]) {
 // 2. Sends NEWVIEW message with its highQC
 // 3. If leader, waits for 2f+1 NEWVIEWs before proposing
 func (hs *HotStuff2[H]) advanceView(nextView uint32) {
+	oldView := hs.ctx.View()
 	hs.ctx.SetView(nextView)
 	if err := hs.cfg.Storage.PutView(nextView); err != nil {
 		hs.logger.Error("failed to persist view", zap.Error(err))
@@ -800,6 +830,11 @@ func (hs *HotStuff2[H]) advanceView(nextView uint32) {
 
 	hs.logger.Info("advanced to new view",
 		zap.Uint32("view", nextView))
+
+	// Hook: OnViewChange
+	if hs.hooks != nil && hs.hooks.OnViewChange != nil {
+		hs.hooks.OnViewChange(oldView, nextView)
+	}
 
 	// Start timer for new view
 	hs.pm.Start(nextView)
@@ -882,6 +917,11 @@ func (hs *HotStuff2[H]) propose() {
 		zap.Uint32("height", block.Height()),
 		zap.String("hash", block.Hash().String()),
 		zap.Uint32("justify_qc_view", qcViewOrZero(highQC)))
+
+	// Hook: OnPropose
+	if hs.hooks != nil && hs.hooks.OnPropose != nil {
+		hs.hooks.OnPropose(view, block)
+	}
 
 	// Leader implicitly votes for its own proposal by creating and tracking a vote.
 	// This is necessary for liveness: with n=3f+1, if f nodes are faulty and
@@ -974,6 +1014,11 @@ func (hs *HotStuff2[H]) proposeWithNewViewQuorum(view uint32) {
 		zap.String("hash", block.Hash().String()),
 		zap.Uint32("justify_qc_view", qcViewOrZero(justifyQC)))
 
+	// Hook: OnPropose
+	if hs.hooks != nil && hs.hooks.OnPropose != nil {
+		hs.hooks.OnPropose(view, block)
+	}
+
 	// Leader implicitly votes for its own proposal
 	leaderVote, err := NewVote(view, block.Hash(), hs.cfg.MyIndex, hs.cfg.PrivateKey)
 	if err != nil {
@@ -1014,4 +1059,9 @@ func (hs *HotStuff2[H]) Height() uint32 {
 		}
 	}
 	return maxHeight
+}
+
+// State returns a read-only view of consensus state for monitoring.
+func (hs *HotStuff2[H]) State() ConsensusState {
+	return hs.ctx.State()
 }

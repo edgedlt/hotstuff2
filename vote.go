@@ -157,14 +157,14 @@ func (v *Vote[H]) Verify(publicKey PublicKey) error {
 		}
 
 		if uint64(timeDiff) > VoteTimestampWindow {
-			return fmt.Errorf("vote timestamp outside acceptable window: %d ms", timeDiff)
+			return wrapByzantinef("vote timestamp outside acceptable window: %d ms", timeDiff)
 		}
 	}
 
 	// Verify signature
 	digest := v.Digest()
 	if !publicKey.Verify(digest, v.signature) {
-		return fmt.Errorf("invalid vote signature")
+		return wrapByzantine("invalid vote signature")
 	}
 
 	return nil

@@ -55,16 +55,16 @@ func NewQC[H Hash](
 	cryptoScheme string,
 ) (*QC[H], error) {
 	if len(votes) == 0 {
-		return nil, fmt.Errorf("no votes provided")
+		return nil, wrapInternal("no votes provided for QC")
 	}
 
 	// Validate all votes are for the same view and block
 	for _, vote := range votes {
 		if vote.View() != view {
-			return nil, fmt.Errorf("vote view %d does not match QC view %d", vote.View(), view)
+			return nil, wrapInternal(fmt.Sprintf("vote view %d does not match QC view %d", vote.View(), view))
 		}
 		if !vote.NodeHash().Equals(nodeHash) {
-			return nil, fmt.Errorf("vote nodeHash does not match QC nodeHash")
+			return nil, wrapInternal("vote hash does not match QC hash")
 		}
 	}
 
@@ -84,7 +84,7 @@ func NewQC[H Hash](
 	// Check quorum size (2f+1)
 	quorum := 2*validators.F() + 1
 	if len(uniqueVotes) < quorum {
-		return nil, fmt.Errorf("insufficient votes: got %d, need %d", len(uniqueVotes), quorum)
+		return nil, wrapInternal(fmt.Sprintf("insufficient votes for quorum: got %d, need %d", len(uniqueVotes), quorum))
 	}
 
 	// Extract signers (sorted for determinism)

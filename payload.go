@@ -313,3 +313,34 @@ func deserializeNewView[H Hash](
 		highQC:         highQC,
 	}, nil
 }
+
+// MessageCodec provides convenient encoding/decoding of consensus messages.
+// Create once and reuse for all message operations.
+type MessageCodec[H Hash] struct {
+	// HashFromBytes deserializes a hash from bytes.
+	HashFromBytes func([]byte) (H, error)
+
+	// BlockFromBytes deserializes a block from bytes.
+	BlockFromBytes func([]byte) (Block[H], error)
+}
+
+// NewMessageCodec creates a new message codec with the given deserializers.
+func NewMessageCodec[H Hash](
+	hashFromBytes func([]byte) (H, error),
+	blockFromBytes func([]byte) (Block[H], error),
+) *MessageCodec[H] {
+	return &MessageCodec[H]{
+		HashFromBytes:  hashFromBytes,
+		BlockFromBytes: blockFromBytes,
+	}
+}
+
+// Decode deserializes a consensus message from bytes.
+func (c *MessageCodec[H]) Decode(data []byte) (*ConsensusMessage[H], error) {
+	return MessageFromBytes(data, c.HashFromBytes, c.BlockFromBytes)
+}
+
+// Encode serializes a consensus message to bytes.
+func (c *MessageCodec[H]) Encode(msg *ConsensusMessage[H]) []byte {
+	return msg.Bytes()
+}

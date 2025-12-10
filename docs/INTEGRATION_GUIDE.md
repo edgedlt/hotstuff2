@@ -44,9 +44,18 @@ func main() {
     }
 
     // 3. Create and start consensus
+    // Option A: Simple callback for commits only
     hs, err := hotstuff2.NewHotStuff2(cfg, func(block hotstuff2.Block[MyHash]) {
         log.Printf("Block committed: height=%d hash=%s", block.Height(), block.Hash())
     })
+    
+    // Option B: Full observability with hooks (recommended)
+    // hs, err := hotstuff2.NewHotStuff2WithHooks(cfg, &hotstuff2.Hooks[MyHash]{
+    //     OnCommit: func(block hotstuff2.Block[MyHash]) { ... },
+    //     OnViewChange: func(old, new uint32) { ... },
+    //     // See "Observability" section for all available hooks
+    // })
+    
     if err != nil {
         panic(err)
     }
@@ -659,6 +668,49 @@ HotStuff-2 uses three message types:
 | `VOTE` | Vote for a proposal | Replica |
 | `NEWVIEW` | View change with highQC | All |
 
+### Message Codec
+
+Use `MessageCodec` for convenient message serialization in your network layer:
+
+```go
+// Create codec once with your deserializers
+codec := hotstuff2.NewMessageCodec[MyHash](
+    func(b []byte) (MyHash, error) {
+        if len(b) != 32 {
+            return MyHash{}, fmt.Errorf("invalid hash length")
+        }
+        var h MyHash
+        copy(h[:], b)
+        return h, nil
+    },
+    func(b []byte) (hotstuff2.Block[MyHash], error) {
+        return MyBlockFromBytes(b)
+    },
+)
+
+// Encode outgoing messages
+func (n *MyNetwork) Broadcast(payload hotstuff2.ConsensusPayload[MyHash]) {
+    data := codec.Encode(payload.(*hotstuff2.ConsensusMessage[MyHash]))
+    for _, peer := range n.peers {
+        peer.Send(data)
+    }
+}
+
+// Decode incoming messages
+func (n *MyNetwork) handleMessage(data []byte) {
+    msg, err := codec.Decode(data)
+    if err != nil {
+        log.Warn("invalid message", "error", err)
+        return
+    }
+    n.incoming <- msg
+}
+```
+
+### Low-Level Message API
+
+For more control, use the message constructors directly:
+
 ```go
 // Creating messages (internal use)
 proposal := hotstuff2.NewProposeMessage(view, myIndex, block, justifyQC)
@@ -757,9 +809,39 @@ func setupTestNetwork() ([]*hotstuff2.HotStuff2[TestHash], error) {
 }
 ```
 
-## Crash Recovery
+## State Management and Pruning
 
-HotStuff-2 supports crash recovery if storage is durable:
+The consensus library maintains in-memory state for active consensus operations. Integrators are responsible for:
+
+### Storage Layer Responsibilities
+
+1. **Durability**: All `Put` operations must be durable before returning. Use sync writes for safety-critical state (`PutView`, `PutHighestLockedQC`).
+
+2. **Checkpointing**: Implement periodic checkpoints of committed state. The library calls `onCommit` for each finalized block - use this to track what's safe to checkpoint.
+
+3. **Pruning**: The library does not prune old blocks or QCs from your storage. Implement pruning behind finalized checkpoints based on your retention requirements.
+
+4. **Recovery Loading**: On restart, only load recent state into the consensus context. The library needs:
+   - Current view (`GetView`)
+   - Locked QC (`GetHighestLockedQC`) 
+   - Recent blocks for ancestry checking
+
+### Memory Considerations
+
+The library's `Context` maintains maps for:
+- `blocksByHash`: Blocks seen during consensus
+- `qcsByNode`: QCs received
+- `parents`: Parent relationships for ancestry checks
+- `votes`: Vote tracking (automatically pruned after 10 views)
+- `newviews`: NEWVIEW tracking (automatically pruned after 10 views)
+
+For long-running nodes, implement checkpointing to bound memory growth. The library only needs blocks within the "danger zone" (uncommitted chain) - typically a few views worth.
+
+### Single-Node Testing
+
+For n=1 test setups, consensus works correctly - the leader's single vote forms a quorum. No special configuration needed.
+
+## Crash Recovery
 
 ```go
 // On restart, load persisted state
@@ -776,18 +858,90 @@ hs.Start() // Resumes from last known state
 - `PutView()`
 - `PutHighestLockedQC()`
 
-## Monitoring
+## Observability
 
-Access consensus state for monitoring:
+### Event Hooks
+
+HotStuff-2 provides optional hooks for monitoring consensus events. Use `NewHotStuff2WithHooks` for full observability:
 
 ```go
-// Current view
-view := hs.View()
+hooks := &hotstuff2.Hooks[MyHash]{
+    // Called when this node proposes a block (leader only)
+    OnPropose: func(view uint32, block hotstuff2.Block[MyHash]) {
+        metrics.ProposalsMade.Inc()
+        log.Debug("proposed block", "view", view, "height", block.Height())
+    },
+    
+    // Called when this node votes for a proposal
+    OnVote: func(view uint32, blockHash MyHash) {
+        metrics.VotesCast.Inc()
+    },
+    
+    // Called when a quorum certificate is formed
+    OnQCFormed: func(view uint32, qc hotstuff2.QuorumCertificate[MyHash]) {
+        metrics.QCsFormed.Inc()
+        log.Debug("QC formed", "view", view, "signers", len(qc.Signers()))
+    },
+    
+    // Called when a block is committed (finalized)
+    OnCommit: func(block hotstuff2.Block[MyHash]) {
+        metrics.BlocksCommitted.Inc()
+        metrics.CommittedHeight.Set(float64(block.Height()))
+    },
+    
+    // Called when the view changes
+    OnViewChange: func(oldView, newView uint32) {
+        metrics.ViewChanges.Inc()
+        metrics.CurrentView.Set(float64(newView))
+    },
+    
+    // Called when a view times out
+    OnTimeout: func(view uint32) {
+        metrics.ViewTimeouts.Inc()
+        log.Warn("view timeout", "view", view)
+    },
+}
 
-// Committed height
-height := hs.Height()
+hs, err := hotstuff2.NewHotStuff2WithHooks(cfg, hooks)
+```
 
-// Context stats (if exposed)
+All hooks are optional - set only the ones you need. Hooks are invoked synchronously, so implementations should be fast or dispatch to a goroutine to avoid blocking consensus.
+
+For backward compatibility, `NewHotStuff2(cfg, onCommit)` is still supported but deprecated.
+
+### Read-Only State Access
+
+Use `State()` to get a read-only snapshot of consensus state for monitoring dashboards:
+
+```go
+state := hs.State()
+
+// Current view number
+view := state.View()
+
+// Height of last committed block
+height := state.Height()
+
+// View of the locked QC (safety lock)
+lockedView := state.LockedQCView()
+
+// View of the highest QC seen
+highView := state.HighQCView()
+
+// Total committed blocks
+committed := state.CommittedCount()
+
+// Example: Prometheus metrics
+currentViewGauge.Set(float64(state.View()))
+committedHeightGauge.Set(float64(state.Height()))
+lockedViewGauge.Set(float64(state.LockedQCView()))
+```
+
+### Detailed Stats
+
+For more detailed internal statistics, use the context stats:
+
+```go
 stats := hs.ctx.Stats()
 // {
 //   "view": 42,
@@ -795,8 +949,69 @@ stats := hs.ctx.Stats()
 //   "high_qc_view": 41,
 //   "committed_count": 38,
 //   "blocks_count": 45,
+//   "qcs_count": 42,
+//   "total_votes": 156,
 // }
 ```
+
+## Error Handling
+
+HotStuff-2 uses a small set of error classes for programmatic error handling. This design allows integrators to handle errors by category rather than matching dozens of specific error types.
+
+### Error Classes
+
+| Error Class | Type | When Returned | Recommended Action |
+|-------------|------|---------------|-------------------|
+| `ErrConfig` | Hard | Startup configuration invalid | Fix config and restart |
+| `ErrInvalidMessage` | Soft | Malformed message from peer | Log and drop message |
+| `ErrByzantine` | Soft | Potential Byzantine behavior | Log, possibly penalize peer |
+| `ErrInternal` | Hard | Internal invariant violation | Investigate - likely a bug |
+
+### Usage
+
+Use `errors.Is()` to check error classes:
+
+```go
+import "errors"
+
+cfg, err := hotstuff2.NewConfig[MyHash](...)
+if err != nil {
+    if errors.Is(err, hotstuff2.ErrConfig) {
+        // Configuration error - must fix and restart
+        log.Fatal("invalid configuration", "err", err)
+    }
+    log.Fatal("unexpected error", "err", err)
+}
+```
+
+### Handling Different Error Types
+
+```go
+func handleConsensusError(err error) {
+    switch {
+    case errors.Is(err, hotstuff2.ErrConfig):
+        log.Fatal("configuration error", "err", err)
+    case errors.Is(err, hotstuff2.ErrInvalidMessage):
+        log.Debug("dropping invalid message", "err", err)
+    case errors.Is(err, hotstuff2.ErrByzantine):
+        log.Warn("potential byzantine behavior", "err", err)
+        metrics.ByzantineErrors.Inc()
+    case errors.Is(err, hotstuff2.ErrInternal):
+        log.Error("internal error", "err", err)
+    }
+}
+```
+
+Errors include descriptive messages - inspect `err.Error()` for details like `"configuration error: validators is required"`.
+
+### Error Classification Reference
+
+| Error Class | Example Conditions |
+|-------------|-------------------|
+| `ErrConfig` | Missing validators, private key, storage, network, executor, timer; invalid validator index; unsupported crypto scheme; insufficient validators |
+| `ErrInvalidMessage` | Message too short; unknown message type; deserialization failure |
+| `ErrByzantine` | Invalid signature; vote timestamp outside acceptable window |
+| `ErrInternal` | QC created with mismatched votes; insufficient quorum (shouldn't happen in normal operation) |
 
 ## Performance Tuning
 

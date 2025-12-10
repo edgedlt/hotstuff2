@@ -72,42 +72,42 @@ func NewConfig[H Hash](opts ...ConfigOption[H]) (*Config[H], error) {
 // validate checks that all required configuration fields are set.
 func (c *Config[H]) validate() error {
 	if c.Validators == nil {
-		return fmt.Errorf("validators is required")
+		return wrapConfig("validators is required")
 	}
 
 	if c.PrivateKey == nil {
-		return fmt.Errorf("private key is required")
+		return wrapConfig("private key is required")
 	}
 
 	if c.Storage == nil {
-		return fmt.Errorf("storage is required")
+		return wrapConfig("storage is required")
 	}
 
 	if c.Network == nil {
-		return fmt.Errorf("network is required")
+		return wrapConfig("network is required")
 	}
 
 	if c.Executor == nil {
-		return fmt.Errorf("executor is required")
+		return wrapConfig("executor is required")
 	}
 
 	if c.Timer == nil {
-		return fmt.Errorf("timer is required")
+		return wrapConfig("timer is required")
 	}
 
 	if !c.Validators.Contains(c.MyIndex) {
-		return fmt.Errorf("my index %d is not in validator set", c.MyIndex)
+		return wrapConfigf("validator index %d not in validator set", c.MyIndex)
 	}
 
 	if c.CryptoScheme != CryptoSchemeEd25519 && c.CryptoScheme != CryptoSchemeBLS {
-		return fmt.Errorf("unsupported crypto scheme: %s", c.CryptoScheme)
+		return wrapConfigf("unsupported crypto scheme: %s", c.CryptoScheme)
 	}
 
 	// Validate Byzantine fault tolerance: n >= 3f + 1
 	n := c.Validators.Count()
 	f := c.Validators.F()
 	if n < 3*f+1 {
-		return fmt.Errorf("insufficient validators for Byzantine fault tolerance: n=%d, f=%d (need n >= 3f+1)", n, f)
+		return wrapConfigf("insufficient validators: n=%d, f=%d (need n >= 3f+1)", n, f)
 	}
 
 	return nil
