@@ -516,7 +516,11 @@ func TestIntegration_SevenNodes(t *testing.T) {
 	sharedNetwork := NewSharedNetwork[TestHash](N)
 
 	nodes := make([]*HotStuff2[TestHash], N)
-	committed := make([][]Block[TestHash], N)
+	// Track committed blocks by height for each node to handle out-of-order commits
+	committed := make([]map[uint32]Block[TestHash], N)
+	for i := range N {
+		committed[i] = make(map[uint32]Block[TestHash])
+	}
 	var commitMu sync.Mutex
 
 	for i := range N {
@@ -539,7 +543,7 @@ func TestIntegration_SevenNodes(t *testing.T) {
 		idx := i
 		onCommit := func(block Block[TestHash]) {
 			commitMu.Lock()
-			committed[idx] = append(committed[idx], block)
+			committed[idx][block.Height()] = block
 			commitMu.Unlock()
 		}
 
@@ -591,6 +595,7 @@ done:
 	commitMu.Lock()
 	defer commitMu.Unlock()
 
+	// Find minimum committed count
 	minCommitted := len(committed[0])
 	for i := 1; i < N; i++ {
 		if len(committed[i]) < minCommitted {
@@ -601,13 +606,31 @@ done:
 	t.Logf("All %d nodes committed at least %d blocks", N, minCommitted)
 	assert.GreaterOrEqual(t, minCommitted, TARGET_BLOCKS)
 
-	// Verify chain consistency
-	for i := 1; i < N; i++ {
-		for j := range minCommitted {
-			assert.True(t, committed[i][j].Hash().Equals(committed[0][j].Hash()),
-				"node %d block %d should match node 0", i, j)
+	// Find common heights across all nodes
+	commonHeights := make([]uint32, 0)
+	for height := range committed[0] {
+		allHave := true
+		for i := 1; i < N; i++ {
+			if _, ok := committed[i][height]; !ok {
+				allHave = false
+				break
+			}
+		}
+		if allHave {
+			commonHeights = append(commonHeights, height)
 		}
 	}
+
+	// Verify chain consistency: all nodes must have the same block at each height
+	for _, height := range commonHeights {
+		refBlock := committed[0][height]
+		for i := 1; i < N; i++ {
+			assert.True(t, committed[i][height].Hash().Equals(refBlock.Hash()),
+				"node %d block at height %d should match node 0", i, height)
+		}
+	}
+
+	t.Logf("Verified %d common heights across all nodes", len(commonHeights))
 }
 
 // TestValidatorSet256 implements ValidatorSet for testing with TestHash256.
@@ -666,4 +689,82 @@ func (vs *TestValidatorSet256) GetLeader(view uint32) uint16 {
 
 func (vs *TestValidatorSet256) F() int {
 	return (vs.n - 1) / 3
+}
+
+// TestIntegration_SingleNode tests consensus with a single node (n=1).
+// This is a degenerate case where quorum=1, so the leader's own vote
+// should be sufficient to form a QC and make progress.
+func TestIntegration_SingleNode(t *testing.T) {
+	const N = 1
+	const TARGET_BLOCKS = 5
+
+	validators, privKeys := NewTestValidatorSetWithKeys(N)
+
+	// Single node network (messages go nowhere, but that's fine for n=1)
+	sharedNetwork := NewSharedNetwork[TestHash](N)
+
+	storage := NewTestStorage()
+	executor := NewTestExecutor()
+	mockTimer := timer.NewMockTimer()
+
+	cfg := &Config[TestHash]{
+		Logger:       zap.NewNop(),
+		Timer:        mockTimer,
+		Validators:   validators,
+		MyIndex:      0,
+		PrivateKey:   privKeys[0],
+		CryptoScheme: "ed25519",
+		Storage:      storage,
+		Network:      sharedNetwork.NodeNetwork(0),
+		Executor:     executor,
+	}
+
+	var committed []Block[TestHash]
+	var commitMu sync.Mutex
+
+	onCommit := func(block Block[TestHash]) {
+		commitMu.Lock()
+		committed = append(committed, block)
+		commitMu.Unlock()
+	}
+
+	node, err := NewHotStuff2(cfg, onCommit)
+	require.NoError(t, err)
+
+	require.NoError(t, node.Start())
+
+	// Wait for blocks to be committed (timeout after 5 seconds)
+	timeout := time.After(5 * time.Second)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			commitMu.Lock()
+			count := len(committed)
+			commitMu.Unlock()
+			t.Fatalf("timeout waiting for blocks to commit, only got %d blocks", count)
+
+		case <-ticker.C:
+			commitMu.Lock()
+			count := len(committed)
+			commitMu.Unlock()
+
+			if count >= TARGET_BLOCKS {
+				goto done
+			}
+		}
+	}
+
+done:
+	node.Stop()
+	time.Sleep(50 * time.Millisecond)
+	sharedNetwork.Close()
+
+	commitMu.Lock()
+	defer commitMu.Unlock()
+
+	t.Logf("Single node committed %d blocks", len(committed))
+	assert.GreaterOrEqual(t, len(committed), TARGET_BLOCKS, "single node should commit at least %d blocks", TARGET_BLOCKS)
 }

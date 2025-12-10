@@ -892,7 +892,11 @@ func (hs *HotStuff2[H]) propose() {
 		hs.logger.Error("failed to create leader vote", zap.Error(err))
 		return
 	}
-	hs.ctx.AddVote(leaderVote)
+	voteCount := hs.ctx.AddVote(leaderVote)
+
+	// Check if leader's vote alone forms quorum (e.g., n=1 single-node setup).
+	// This also handles the case where votes arrived before the proposal.
+	hs.tryFormQCIfQuorum(view, block.Hash(), voteCount)
 }
 
 // proposeWithNewViewQuorum creates a proposal after collecting 2f+1 NEWVIEWs.
@@ -976,7 +980,11 @@ func (hs *HotStuff2[H]) proposeWithNewViewQuorum(view uint32) {
 		hs.logger.Error("failed to create leader vote", zap.Error(err))
 		return
 	}
-	hs.ctx.AddVote(leaderVote)
+	voteCount := hs.ctx.AddVote(leaderVote)
+
+	// Check if leader's vote alone forms quorum (e.g., n=1 single-node setup).
+	// This also handles the case where votes arrived before the proposal.
+	hs.tryFormQCIfQuorum(view, block.Hash(), voteCount)
 }
 
 // qcViewOrZero returns the QC view or 0 if nil (helper for logging).

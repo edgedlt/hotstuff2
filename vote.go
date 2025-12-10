@@ -143,17 +143,22 @@ func (v *Vote[H]) BLSDigest() []byte {
 }
 
 // Verify verifies the vote signature with the given public key.
-// Also validates timestamp is within acceptable window.
+// Also validates timestamp is within acceptable window (Ed25519 only).
+// BLS votes use timestamp=0 and skip timestamp validation since all validators
+// sign the same message (view + nodeHash only) for aggregation.
 func (v *Vote[H]) Verify(publicKey PublicKey) error {
 	// Check timestamp is within acceptable window (replay protection)
-	now := uint64(time.Now().UnixMilli())
-	timeDiff := int64(now) - int64(v.timestamp)
-	if timeDiff < 0 {
-		timeDiff = -timeDiff
-	}
+	// Skip for BLS votes which use timestamp=0 for signature aggregation
+	if v.timestamp != 0 {
+		now := uint64(time.Now().UnixMilli())
+		timeDiff := int64(now) - int64(v.timestamp)
+		if timeDiff < 0 {
+			timeDiff = -timeDiff
+		}
 
-	if uint64(timeDiff) > VoteTimestampWindow {
-		return fmt.Errorf("vote timestamp outside acceptable window: %d ms", timeDiff)
+		if uint64(timeDiff) > VoteTimestampWindow {
+			return fmt.Errorf("vote timestamp outside acceptable window: %d ms", timeDiff)
+		}
 	}
 
 	// Verify signature
